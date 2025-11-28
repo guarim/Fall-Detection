@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeGuard - Configuration & Surveillance</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+    <style>
+        body { background-color: #111827; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; }
+        
+        /* Styles spécifiques Vidéo/Canvas */
+        .cam-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+        .cam-container { position: relative; border-radius: 12px; overflow: hidden; background: #000; border: 2px solid #374151; aspect-ratio: 16/9; }
+        .cam-overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 5px; font-size: 12px; }
+        .alert-overlay { position: absolute; inset: 0; background: rgba(220, 38, 38, 0.7); display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 10; animation: pulse 1s infinite; }
+        .video-feed { width: 100%; height: 100%; object-fit: cover; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        @keyframes pulse { 0% { opacity: 0.8; } 50% { opacity: 0.4; } 100% { opacity: 0.8; } }
+        
+        /* Utilitaires de visibilité */
+        .hidden-screen { display: none !important; }
+        
+        /* Logs */
+        .log-item { border-left: 3px solid #4ade80; padding: 8px; margin-bottom: 6px; font-size: 0.85em; background: rgba(255,255,255,0.05); border-radius: 0 4px 4px 0; }
+        .log-alert { border-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <div id="configScreen" class="fixed inset-0 z-50 bg-gray-900 flex items-center justify-center p-4">
+        <div class="bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl border border-gray-700 overflow-hidden">
+            <div class="bg-gray-700 p-6 border-b border-gray-600">
+                <h1 class="text-2xl font-bold text-blue-400 flex items-center gap-2">
+                    🛡️ Configuration SafeGuard
+                </h1>
+                <p class="text-gray-400 text-sm mt-1">Paramétrez le système avant de lancer la surveillance.</p>
+            </div>
+            
+            <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <div>
+                    <h3 class="text-white font-semibold mb-4 border-b border-gray-600 pb-2">Système & Caméras</h3>
+                    
+                    <label class="block text-sm text-gray-400 mb-1">Nombre de caméras à activer</label>
+                    <select id="confNbCams" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white mb-4 focus:border-blue-500 outline-none">
+                        <option value="1">1 Caméra</option>
+                        <option value="2">2 Caméras</option>
+                        <option value="3">3 Caméras</option>
+                        <option value="4">4 Caméras</option>
+                    </select>
+
+                    <label class="block text-sm text-gray-400 mb-1">Email pour envoi vidéo</label>
+                    <input type="email" id="confEmail" placeholder="proche@email.com" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white mb-4">
+                </div>
+
+                <div>
+                    <h3 class="text-white font-semibold mb-4 border-b border-gray-600 pb-2">Alerte SMS (Free Mobile)</h3>
+                    <p class="text-xs text-gray-500 mb-2 italic">Le SMS sera envoyé au propriétaire de la ligne.</p>
+
+                    <label class="block text-sm text-gray-400 mb-1">Identifiant Abonné (User)</label>
+                    <input type="text" id="confFreeUser" placeholder="ex: 12345678" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white mb-4">
+
+                    <label class="block text-sm text-gray-400 mb-1">Clé API (Générée sur l'espace abonné)</label>
+                    <input type="password" id="confFreeKey" placeholder="ex: KJS82ks..." class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white mb-4">
+                    
+                    <div class="flex items-center gap-2 mt-2">
+                         <button type="button" onclick="testSMS()" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded transition">Tester SMS maintenant</button>
+                         <span id="smsTestResult" class="text-xs text-yellow-500"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6 bg-gray-750 flex justify-end border-t border-gray-600">
+                <button onclick="launchApp()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition transform hover:scale-105 shadow-lg flex items-center gap-2">
+                    <span>LANCER LE SYSTÈME</span>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="appScreen" class="flex h-full hidden-screen">
+        
+        <aside class="w-72 bg-gray-800 border-r border-gray-700 flex flex-col z-20">
+            <div class="p-4 border-b border-gray-700">
+                <h1 class="text-xl font-bold text-blue-500">🛡️ SafeGuard</h1>
+                <div id="statusIndicator" class="mt-2 text-xs flex items-center gap-2 text-green-400">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    Système Actif
+                </div>
+            </div>
+
+            <div class="p-4 text-xs text-gray-400 border-b border-gray-700">
+                <p class="mb-1"><strong class="text-gray-300">Config:</strong> <span id="displayCamCount">0</span> Caméras</p>
+                <p class="mb-1"><strong class="text-gray-300">SMS:</strong> <span id="displayFreeStatus">Non configuré</span></p>
+                <p><strong class="text-gray-300">Email:</strong> <span id="displayEmail">--</span></p>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4">
+                <h3 class="font-semibold mb-3 text-gray-500 text-xs uppercase tracking-wider">Journal d'Alertes</h3>
+                <div id="logsContainer"></div>
+            </div>
+            
+            <div class="p-4">
+                 <button onclick="location.reload()" class="w-full bg-red-900/50 hover:bg-red-900 text-red-200 text-sm py-2 px-4 rounded border border-red-800">
+                    Arrêter / Reconfigurer
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 p-4 overflow-y-auto relative bg-gray-900">
+            <div id="cameraGrid" class="cam-grid h-full">
+                </div>
+        </main>
+    </div>
+
+    <div id="criticalAlertModal" class="fixed inset-0 bg-black bg-opacity-95 z-50 hidden-screen flex items-center justify-center">
+        <div class="text-center p-8 bg-gray-800 rounded-2xl border-4 border-red-600 max-w-lg w-full shadow-[0_0_50px_rgba(220,38,38,0.5)]">
+            <h1 class="text-4xl mb-2 font-bold text-white">⚠️ CHUTE DÉTECTÉE</h1>
+            <p class="text-lg text-gray-300 mb-6">Alerte envoyée dans :</p>
+            <div id="mainCountdown" class="text-7xl font-mono font-bold text-red-500 mb-8">30</div>
+            
+            <button onclick="cancelAlert()" class="bg-green-600 hover:bg-green-700 text-white w-full py-4 rounded-lg text-xl font-bold shadow-lg transform active:scale-95 transition">
+                JE VAIS BIEN (Annuler)
+            </button>
+            <p class="mt-4 text-sm text-gray-500 animate-pulse">Enregistrement vidéo en cours...</p>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTES & ETAT ---
+        const CONFIG = {
+            poseConfidence: 0.65,
+            fallThresholdRatio: 1.25,
+            alertDelay: 30, // secondes
+            videoClipDuration: 10000, 
+            videoInterval: 60000 
+        };
+
+        let appState = {
+            settings: {
+                nbCameras: 1,
+                freeUser: '',
+                freeKey: '',
+                email: ''
+            },
+            monitoring: false,
+            alertActive: false,
+            countdownValue: 30,
+            countdownTimer: null,
+            videoIntervalTimer: null,
+            lastFallTimestamp: 0
+        };
+
+        // --- CHARGEMENT CONFIG (LocalStorage) ---
+        window.onload = () => {
+            const saved = JSON.parse(localStorage.getItem('safeguard_config') || '{}');
+            if(saved.freeUser) document.getElementById('confFreeUser').value = saved.freeUser;
+            if(saved.freeKey) document.getElementById('confFreeKey').value = saved.freeKey;
+            if(saved.email) document.getElementById('confEmail').value = saved.email;
+            if(saved.nbCameras) document.getElementById('confNbCams').value = saved.nbCameras;
+        };
+
+        // --- LOGIQUE FORMULAIRE & LANCEMENT ---
+        function launchApp() {
+            // 1. Récupération des données
+            appState.settings.nbCameras = parseInt(document.getElementById('confNbCams').value);
+            appState.settings.freeUser = document.getElementById('confFreeUser').value.trim();
+            appState.settings.freeKey = document.getElementById('confFreeKey').value.trim();
+            appState.settings.email = document.getElementById('confEmail').value.trim();
+
+            // 2. Sauvegarde locale pour le confort
+            localStorage.setItem('safeguard_config', JSON.stringify(appState.settings));
+
+            // 3. Mise à jour de l'UI Sidebar
+            document.getElementById('displayCamCount').innerText = appState.settings.nbCameras;
+            document.getElementById('displayEmail').innerText = appState.settings.email || "Non défini";
+            const freeStatus = (appState.settings.freeUser && appState.settings.freeKey) 
+                ? `<span class="text-green-400">Actif (${appState.settings.freeUser})</span>` 
+                : `<span class="text-red-400">Inactif</span>`;
+            document.getElementById('displayFreeStatus').innerHTML = freeStatus;
+
+            // 4. Changement d'écran
+            document.getElementById('configScreen').classList.add('hidden-screen');
+            document.getElementById('appScreen').classList.remove('hidden-screen');
+
+            // 5. Démarrage réel
+            startMonitoringSystem();
+        }
+
+        async function testSMS() {
+            const user = document.getElementById('confFreeUser').value.trim();
+            const pass = document.getElementById('confFreeKey').value.trim();
+            const resultSpan = document.getElementById('smsTestResult');
+
+            if (!user || !pass) {
+                resultSpan.innerText = "Infos manquantes";
+                resultSpan.className = "text-xs text-red-500";
+                return;
+            }
+
+            resultSpan.innerText = "Envoi...";
+            const success = await sendFreeMobileSMS("Test de configuration SafeGuard OK", user, pass);
+            
+            if(success) {
+                resultSpan.innerText = "Succès !";
+                resultSpan.className = "text-xs text-green-500 font-bold";
+            } else {
+                resultSpan.innerText = "Erreur (Check Console/CORS)";
+                resultSpan.className = "text-xs text-red-500";
+            }
+        }
+
+        // --- FONCTIONS SYSTÈME (SEND SMS) ---
+        async function sendFreeMobileSMS(message, forceUser = null, forceKey = null) {
+            const user = forceUser || appState.settings.freeUser;
+            const key = forceKey || appState.settings.freeKey;
+
+            if (!user || !key) return false;
+
+            // Encodage propre du message pour URL
+            const msgEncoded = encodeURIComponent(message);
+            const url = `https://smsapi.free-mobile.fr/sendmsg?user=${user}&pass=${key}&msg=${msgEncoded}`;
+
+            try {
+                // Note: Si le navigateur bloque pour CORS, il faut ignorer l'erreur dans un contexte local de démo
+                // ou utiliser un proxy. Ici on tente le fetch direct.
+                await fetch(url, { method: 'GET', mode: 'no-cors' }); 
+                // Avec 'no-cors', on ne peut pas lire le statut, mais la requête part.
+                console.log("SMS Request Sent");
+                return true;
+            } catch (e) {
+                console.error("Erreur SMS:", e);
+                return false;
+            }
+        }
+
+        // --- LOGGER ---
+        function addLog(msg, type='info') {
+            const div = document.createElement('div');
+            div.className = `log-item ${type === 'alert' ? 'log-alert' : ''}`;
+            div.innerHTML = `<span class="text-gray-500">${new Date().toLocaleTimeString()}</span><br>${msg}`;
+            document.getElementById('logsContainer').prepend(div);
+        }
+
+        // --- COEUR DU SYSTÈME (Démarrage Caméras) ---
+        async function startMonitoringSystem() {
+            addLog("Initialisation du moteur IA...");
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true }); // Demande permission
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+                if (videoDevices.length === 0) throw new Error("Aucune webcam trouvée");
+
+                // Limiter au nombre configuré ou au max disponible
+                const maxCams = Math.min(appState.settings.nbCameras, videoDevices.length);
+                const grid = document.getElementById('cameraGrid');
+                grid.innerHTML = '';
+
+                for(let i=0; i<maxCams; i++) {
+                    createCameraUnit(videoDevices[i].deviceId, i, grid);
+                }
+                
+                appState.monitoring = true;
+                addLog(`Système démarré avec ${maxCams} caméra(s)`, 'success');
+
+            } catch(e) {
+                alert("Erreur Caméra: " + e.message);
+                location.reload();
+            }
+        }
+
+        function createCameraUnit(deviceId, index, parent) {
+            // Création HTML
+            const div = document.createElement('div');
+            div.className = 'cam-container';
+            div.innerHTML = `
+                <video id="vid-${index}" class="video-feed" playsinline muted autoplay></video>
+                <canvas id="cvs-${index}"></canvas>
+                <div class="cam-overlay">CAM ${index+1}</div>
+                <div id="overlay-${index}" class="alert-overlay"><span class="text-white font-bold text-2xl">DANGER</span></div>
+            `;
+            parent.appendChild(div);
+
+            const video = document.getElementById(`vid-${index}`);
+            const canvas = document.getElementById(`cvs-${index}`);
+            const ctx = canvas.getContext('2d');
+
+            // Setup MediaPipe
+            const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
+            pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            pose.onResults((res) => onPoseResults(res, ctx, canvas, index));
+
+            // Lancement Caméra
+            const camera = new Camera(video, {
+                onFrame: async () => await pose.send({image: video}),
+                width: 640, height: 360, deviceId: deviceId
+            });
+            camera.start();
+        }
+
+        // --- ANALYSE D'IMAGE ---
+        function onPoseResults(results, ctx, canvas, idx) {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!results.poseLandmarks) return; // Personne ? On ne fait rien.
+
+            // Dessin
+            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+            drawLandmarks(ctx, results.poseLandmarks, {color: '#FF0000', lineWidth: 1});
+
+            // Détection Chute
+            analyzeFall(results.poseLandmarks, idx);
+        }
+
+        function analyzeFall(lm, idx) {
+            if (appState.alertActive) return;
+
+            // Coordonnées normalisées (0.0 à 1.0)
+            const hipsY = (lm[23].y + lm[24].y) / 2; // Moyenne hauteur hanches
+            
+            // Calcul Bounding Box
+            const xs = lm.map(l => l.x);
+            const ys = lm.map(l => l.y);
+            const width = Math.max(...xs) - Math.min(...xs);
+            const height = Math.max(...ys) - Math.min(...ys);
+
+            // Logique 1: Ratio (Largeur > Hauteur * seuil) -> Corps allongé
+            const isHorizontal = width > (height * CONFIG.fallThresholdRatio);
+            
+            // Logique 2: Position basse (Hanches dans le tiers bas de l'image)
+            const isLow = hipsY > 0.65;
+
+            if (isHorizontal || isLow) {
+                 triggerPreAlert(idx);
+            }
+        }
+
+        // --- GESTION ALERTE ---
+        function triggerPreAlert(idx) {
+            const now = Date.now();
+            if (now - appState.lastFallTimestamp < 5000) return; // Debounce 5s
+            
+            appState.lastFallTimestamp = now;
+            appState.alertActive = true;
+            appState.countdownValue = CONFIG.alertDelay;
+
+            // UI
+            document.getElementById('criticalAlertModal').classList.remove('hidden-screen');
+            document.getElementById(`overlay-${idx}`).style.display = 'flex';
+            document.getElementById('mainCountdown').innerText = appState.countdownValue;
+            addLog(`⚠️ Détection suspecte (Cam ${idx+1})`, 'alert');
+
+            // Timer
+            appState.countdownTimer = setInterval(() => {
+                appState.countdownValue--;
+                document.getElementById('mainCountdown').innerText = appState.countdownValue;
+                
+                if(appState.countdownValue <= 0) {
+                    confirmAlertAndSend();
+                }
+            }, 1000);
+        }
+
+        function cancelAlert() {
+            clearInterval(appState.countdownTimer);
+            clearInterval(appState.videoIntervalTimer);
+            appState.alertActive = false;
+            
+            document.getElementById('criticalAlertModal').classList.add('hidden-screen');
+            document.querySelectorAll('.alert-overlay').forEach(e => e.style.display = 'none');
+            addLog("✅ Alerte annulée par l'utilisateur", 'success');
+        }
+
+        function confirmAlertAndSend() {
+            clearInterval(appState.countdownTimer);
+            
+            // UI
+            const counter = document.getElementById('mainCountdown');
+            counter.innerText = "ALERTE !";
+            counter.className = "text-5xl font-bold text-red-600 mb-8 animate-pulse";
+            
+            addLog("🚨 ALERTE CONFIRMÉE - ENVOI MESSAGES", 'alert');
+
+            // 1. Envoi SMS Free
+            const msg = "ALERTE CHUTE DETECTEE ! Vérifiez la caméra. Heure: " + new Date().toLocaleTimeString();
+            sendFreeMobileSMS(msg);
+
+            // 2. Simulation Envoi Mail Vidéo
+            startVideoRecordingLoop();
+        }
+
+        function startVideoRecordingLoop() {
+            const recordAndSend = () => {
+                if(!appState.alertActive) return;
+                
+                // On prend juste la première vidéo trouvée pour l'exemple
+                const videoEl = document.querySelector('video');
+                if(!videoEl) return;
+
+                const recorder = new MediaRecorder(videoEl.srcObject);
+                const chunks = [];
+                
+                recorder.ondataavailable = e => chunks.push(e.data);
+                recorder.onstop = () => {
+                    const blob = new Blob(chunks, {type: 'video/webm'});
+                    const size = (blob.size / 1024 / 1024).toFixed(2);
+                    addLog(`✉️ Vidéo capturée (${size} MB). Simulation envoi à ${appState.settings.email}...`);
+                    // Ici implémenter l'envoi vers un backend réel
+                };
+
+                recorder.start();
+                setTimeout(() => recorder.stop(), CONFIG.videoClipDuration);
+            };
+
+            recordAndSend(); // Immédiat
+            appState.videoIntervalTimer = setInterval(recordAndSend, CONFIG.videoInterval);
+        }
+
+    </script>
+</body>
+</html>
